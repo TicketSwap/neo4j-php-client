@@ -25,6 +25,7 @@ use Http\Client\Exception\HttpException;
 use Http\Client\HttpClient;
 use Http\Message\RequestFactory;
 use Psr\Http\Message\RequestInterface;
+use ReflectionObject;
 
 class Session implements SessionInterface
 {
@@ -191,13 +192,37 @@ class Session implements SessionInterface
             'statements' => $statements,
         ]);
         $headers = [
-            [
-                'X-Stream' => true,
-                'Content-Type' => 'application/json',
-            ],
+            //'X-Stream' => true,
+            'Content-Type' => 'application/json',
         ];
 
-        return $this->requestFactory->createRequest('POST', sprintf('%s/db/data/transaction/commit', $this->uri), $headers, $body);
+        $request = $this->requestFactory->createRequest('POST', sprintf('%s/db/data/transaction/commit', $this->uri), $headers, $body);
+
+        $this->appendXStreamHeader($request);
+
+        return $request;
+    }
+
+    /**
+     * Providing the X-Stream header to the Neo4j API request ensures that the JSON
+     * is sent as a stream for better performance and lower memory overhead, but
+     * due to the validation in the new psr7 client factory creating a client
+     * with this header throws a validation exception.
+     *
+     * To avoid the exception being thrown but still having the X-Stream header it
+     * is now being added through reflection after the request has been created
+     */
+    private function appendXStreamHeader($request)
+    {
+        $reflection = new ReflectionObject($request);
+
+        $reflectionProperty = $reflection->getProperty('headers');
+        $reflectionProperty->setAccessible(true);
+
+        $headers             = $reflectionProperty->getValue($request);
+        $headers['X-Stream'] = [true];
+        $reflectionProperty->setValue($request, $headers);
+        $reflectionProperty->setAccessible(false);
     }
 
     private function formatParams(array $params)
